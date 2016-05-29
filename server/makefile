@@ -5,6 +5,6 @@ TARGET = game_server
 .SUFFIXES = .c .o
 all : $(TARGET)
 $(TARGET): $(OBJS)
-	     $(CC) -o $@ $(OBJS)
+	     $(CC) -O3 -o $@ $(OBJS) -lsqlite3 -lcrypto
 clean :
 	rm -f $(OBJS) $(TARGET) 
