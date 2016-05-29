@@ -1,8 +1,10 @@
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <signal.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <stdlib.h>
 #include "sockstruct.h"
 #include "queue.h"
@@ -20,6 +22,14 @@ void do_queue(){
 		if(msg_queue->head != msg_queue->tail){
 			gp = pop_queue();
 			printf("popped : %d %d %s\n",gp->PACK_TYPE,gp->uid, gp->payload);
+			switch(gp->PACK_TYPE){
+				case 1:
+				{
+					struct g_login *p = (struct g_login *)gp->payload;
+					printf("[DEBUG]id : %s, pw : %s\n",p->id,p->pw);
+					break;
+				}
+			}
 		}
 	}
 
@@ -44,8 +54,8 @@ int main(){
 	int sockfd, newsockfd, portno, clilen, pid;
 	struct sockaddr_in serv_addr, cli_addr;
 	int optval = 1;
+	unsigned int randval;
 	signal(SIGCHLD, SIG_IGN);
-
 	sockfd = socket(AF_INET,SOCK_STREAM, 0);
 	if(sockfd < 0){
 		perror("Error opening socket.");
@@ -85,7 +95,17 @@ int main(){
 			exit(1);
 		}
 		if(pid == 0){
+			int randfd;
+			unsigned int randval;
 			close(sockfd);
+			char *str;
+			str = inet_ntoa(cli_addr.sin_addr);
+			randfd = open("/dev/urandom",O_RDONLY);
+			read(randfd,&randval,4,0);
+			printf("sending uid : %x\n",randval);
+			send(newsockfd,&randval,4,0);
+			close(randfd);
+			printf("[DEBUG]we got a new connection on %s\n",str);
 			message_loop(newsockfd);
 			exit(0);
 		}

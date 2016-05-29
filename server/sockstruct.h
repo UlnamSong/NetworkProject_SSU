@@ -1,6 +1,10 @@
 #define P_UNDEFINED 0
 #define P_LOGIN 1
 
+struct g_login{
+	char id[64];
+	char pw[64];
+};
 struct g_gameroom{
 	unsigned int p_uid[4];
 
