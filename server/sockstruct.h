@@ -1,3 +1,5 @@
+#ifndef __SOCKSTRUCT_H__
+#define __SOCKSTRUCT_H__
 #define P_UNDEFINED 0
 #define P_LOGIN 1
 
@@ -14,3 +16,4 @@ struct g_packet{
 	unsigned int uid;
 	char payload[256];
 };
+#endif

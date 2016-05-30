@@ -1,5 +1,5 @@
 CC = gcc
-OBJS = queue.o main.o
+OBJS = queue.o main.o gameroom.o
 TARGET = game_server
 
 .SUFFIXES = .c .o

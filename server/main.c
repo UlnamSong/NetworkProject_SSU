@@ -8,15 +8,26 @@
 #include <arpa/inet.h>
 #include <stdlib.h>
 #include <openssl/md5.h>
+#ifndef __SOCKSTRUCT_H__
 #include "sockstruct.h"
+#endif
+#ifndef __GAMESTRUCT_H__
+#include "gamestruct.h"
+#endif
+#ifndef __GAMEROOM_H__
+#include "gameroom.h"
+#endif
 #include "queue.h"
 
 #define PORT 9090
 #define true 1
+#define false 0
 #ifndef MEMKEY
 #define MEMKEY 1337
 #endif
 #define MEMSIZE 10240
+struct gameroom g_room[GAMEROOM_MAX];
+struct user user_info[USER_MAX];
 struct queue *msg_queue;
 sqlite3 *db;
 char *encode(unsigned char hashed[]){
@@ -28,6 +39,7 @@ char *encode(unsigned char hashed[]){
 	}
 	return tmp;
 }
+
 void do_queue(){
 	struct g_packet *gp;
 	int rc;
@@ -38,6 +50,8 @@ void do_queue(){
 	"id varchar(64),"
 	"pw varchar(32))";
 	char *login_query = "select * from user where id = ? and pw = ?";
+	char *id_query = "select * from user where id = ?";
+	char *insert_user_query = "insert into user(id,pw) values(?, ?)";
 	rc = sqlite3_exec(db,init,0,0,&err);	
 	if(rc != SQLITE_OK){
 		printf("error! %s\n",err);
@@ -56,7 +70,6 @@ void do_queue(){
 					char *encoded;
 					printf("[DEBUG]id : %s, pw : %s\n",p->id,p->pw);
 					MD5(p->pw,strlen(p->pw),hashed);
-					printf("[DEBUG]hashed: ");
 					encoded = encode(hashed);
 					rc = sqlite3_prepare_v2(db,login_query,-1,&res,0);
 					if(rc == SQLITE_OK){
@@ -65,11 +78,13 @@ void do_queue(){
 					}
 					else{
 						printf("Failed to execute : %s\n",sqlite3_errmsg(db));
+						free(encoded);
 						return;
 					}
 					int step = sqlite3_step(res);
 					if(step == SQLITE_ROW){
-						printf("%s, %s, %s\n",sqlite3_column_text(res,0), sqlite3_column_text(res,1), sqlite3_column_text(res,2));
+						printf("%s, %s, %s\n",sqlite3_column_text(res,0), sqlite3_column_text(res,1),
+						sqlite3_column_text(res,2));
 						send(gp->uid,"\x00",0,0);
 					}
 					else{
@@ -77,8 +92,54 @@ void do_queue(){
 						send(gp->uid,"\x01",1,0);
 					}
 					sqlite3_finalize(res);
+					free(encoded);
 					break;
 				}
+				case 0x02:
+				{
+					unsigned char hashed[MD5_DIGEST_LENGTH+1];
+					struct g_login *p = (struct g_login *)gp->payload;
+					char *encoded;
+					printf("[DEBUG]regid: %s, pw %s\n", p->id, p->pw);
+					MD5(p->pw, strlen(p->pw), hashed);
+					encoded = encode(hashed);
+					rc = sqlite3_prepare_v2(db,id_query,-1,&res,0);
+					if(rc == SQLITE_OK){
+						sqlite3_bind_text(res,1,p->id,strlen(p->id),0);
+					} 
+					else{
+						printf("Failed to execute : %s\n", sqlite3_errmsg(db));
+						free(encoded);
+						return;
+					}
+					int step = sqlite3_step(res);
+					if(step == SQLITE_ROW){
+						printf("[DEBUG] already exists user with id %s\n",p->id);
+						send(gp->uid,"\x00",1,0);
+					}
+					else{
+						sqlite3_finalize(res);
+						rc = sqlite3_prepare_v2(db,insert_user_query,-1,&res,0);
+						if(rc == SQLITE_OK){
+							sqlite3_bind_text(res,1,p->id,strlen(p->id), 0);
+							sqlite3_bind_text(res,2,encoded,32,0);
+						}
+						else{
+							printf("Failed to execute : %s\n",sqlite3_errmsg(db));
+							return;
+						}
+						int step = sqlite3_step(res);
+						sqlite3_finalize(res);
+					}
+					free(encoded);
+					break;
+				}
+				case 0x03:
+				{
+					
+					break;
+				}
+
 			}
 		}
 	}
@@ -100,6 +161,44 @@ void message_loop(int sock){
 		}
 	}
 }
+/*
+struct gameroom{
+        unsigned int room_idx;
+        bool occupied;
+        unsigned char GAME_STATUS;
+        unsigned int user_count;
+        unsigned int uid[4];
+        unsigned int playing_song;
+};
+
+*/
+void gameroom_init(){
+	int i = 0;
+	int j = 0;
+	printf("[DEBUG] Gameroom initializing..\n");
+	for(i = 0 ; i < GAMEROOM_MAX ; i++){
+		g_room[i].room_idx = 0;
+		g_room[i].occupied = false;
+		g_room[i].user_count = 0;
+		g_room[i].GAME_STATUS = 0;
+		for(j = 0 ; j < GAMEROOM_MAX ; j++){
+			g_room[i].uid[j] = 0;
+		}
+		g_room[i].playing_song = 0;
+	}
+}
+void user_init(){
+	int i = 0;
+	printf("[DEBUG] User Info initializing..\n");
+	for(i = 0 ; i < USER_MAX ; i++){
+		user_info[i].used = false;
+		user_info[i].uid = 0;
+		user_info[i].token = 0;
+		memset(&user_info[i].username, 0x00, 64);
+		user_info[i].wcount = 0;
+		user_info[i].lcount = 0;
+	}
+}
 int main(){
 	int sockfd, newsockfd, portno, clilen, pid;
 	struct sockaddr_in serv_addr, cli_addr;
@@ -108,6 +207,9 @@ int main(){
 	int rc;
 	signal(SIGCHLD, SIG_IGN);
 	init_queue(msg_queue);
+	
+	gameroom_init();
+	user_init();
 	rc = sqlite3_open("data.db",&db);
 	if(rc != SQLITE_OK){
 		printf("error on sqlite: %s\n",sqlite3_errmsg(db));
